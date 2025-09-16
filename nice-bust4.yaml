@@ -2,45 +2,31 @@
 #test on Wemos D1 mini
 
 substitutions:
-  device_name: "nice-robus-400-bust4-uart"
-  device_name_friendly: "Nice Robus 400"
+  device_name: "nice-bust4-uart"
+  device_name_friendly: "Nice BusT4"
   api_password: !secret     wt32_eth01_api_password
   ota_password: !secret     wt32_eth01_ota_password
   mqtt_broker_address: !secret   mqtt_broker_address
   led_gpio:                 GPIO2
   DS18B20_pin:              GPIO4
   light_relay_pin:          GPIO14
-  #device_ip: 192.168.5.60
+  device_ip: 192.168.2.111
+  network_gateway: 192.168.2.1
+  network_subnet: 255.255.255.0
 
-# esphome:
-  # name: ${device_name}
-  # friendly_name: ${device_name_friendly}
-
+esphome:
+  name: ${device_name}
+  friendly_name: ${device_name_friendly}
 
 esp32:
   board: wt32-eth01
-  # board: esp32dev
   framework:
     type: arduino
 
-ethernet:
-  type: LAN8720
-  mdc_pin: GPIO23
-  mdio_pin: GPIO18
-  clk_mode: GPIO0_IN
-  phy_addr: 1
-  power_pin: GPIO16
-  #Optional manual IP
-  #manual_ip:
-  #  static_ip: $device_ip
-  #  gateway: $network_gateway
-  #  subnet: $network_subnet
-  
 # Enable logging
 logger:
   level: DEBUG
-#  level: VERBOSE
-  baud_rate: 0
+  baud_rate: 115200
 
 ota:
   - platform: esphome
@@ -50,15 +36,45 @@ ota:
 web_server:
   port: 80
 
-# status_led:
-#   pin: 
-#     number: ${led_gpio}
-#     inverted: true
+# Configure I2C for Tiny RTC module (SDA=GPIO17, SCL=GPIO5)
+i2c:
+  sda: GPIO17
+  scl: GPIO5
+  scan: true # Optional: helps to verify if RTC is detected
 
-# external_components:
-#   - source: 
-#       type: local
-#       path: ./components/bus_t4
+# Real-Time Clock (Tiny RTC DS1307) component
+time:
+  - platform: ds1307
+    id: my_rtc
+    # Optional: If the RTC loses power, you can set it from NTP/Home Assistant
+    # on_time:
+    #   - cron: '0 2 * * *' # Sync RTC every day at 2 AM
+    #     then:
+    #       - component.update: my_rtc
+
+# Display current time from RTC in the web interface
+text_sensor:
+  # ... [Your existing text sensors] ...
+  - platform: wifi_info
+    ip_address:
+      name: "Device IP Address"
+      id: device_ip_address
+      icon: "mdi:ip-network"
+    update_interval: 60s
+
+  - platform: template
+    name: "Current Time (RTC)"
+    id: current_time_text
+    icon: "mdi:clock"
+    lambda: |-
+      id(my_rtc).update();
+      auto time_now = id(my_rtc).now();
+      if (time_now.is_valid()) {
+        return time_now.strftime("%Y-%m-%d %H:%M:%S");
+      } else {
+        return "RTC time not set";
+      }
+    update_interval: 1s # Update every second
 
 external_components:
   - source:
@@ -66,21 +82,27 @@ external_components:
       url: https://github.com/karol27/Nice_BusT4_WT32-ETH01
     refresh: 0s
 
-#wifi:
-#  ssid: !secret wifi_ssid
-#  password: !secret wifi_password
+# Primary WiFi Network
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
 
-#  # Enable fallback hotspot (captive portal) in case wifi connection fails
-#  ap:
-#    ssid: "Nice Fallback Hotspot"
-#    password: "SKXZ6FPAdwIC"
+  # Secondary WiFi Network
+    - ssid: !secret wifi_ssid_ZPS
+      password: !secret wifi_password_ZPS
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Nice Fallback Hotspot"
+    password: "SKXZ6FPAdwIC"
 
 # captive_portal:
 
 # Enable Home Assistant API
 api:
   encryption:
-    key: $api_password
+    key: "4ny/UyjsLzkyT5Kf5a3/5uQi7+VUAWLLdGKfN4H0QUs="
   reboot_timeout: 0s # otherwise reboots when disconnected from hassio  
   services:
 # to send hex commands to the bus T4
@@ -132,117 +154,55 @@ api:
       lambda: |-
          my_nice_cover -> NiceBusT4::set_mcu("0a","01"); 
 
-
 # Buttons for sending commands
 button:
   - platform: template
-    name: Step-by-step
+    name: "Step-by-step"
     id: sbs
     on_press:
       lambda: |-
            my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SBS);
 
-#         my_nice_cover -> NiceBusT4::send_raw_cmd("55 0c 00 ff 00 66 01 05 9D 01 82 01 64 E6 0c");
-
   - platform: template
-    name: Partial opening 1
+    name: "Partial opening 1"
     id: p_opn1
     on_press:
       lambda: |-
          my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN1);
 
   - platform: template
-    name: Input status
+    name: "Input status"
     id: in_stat
     on_press:
       lambda: |-
            my_nice_cover -> NiceBusT4::send_raw_cmd("55.0D.00.03.00.66.08.06.6B.04.D0.99.00.00.4D.0D");
   
   - platform: template
-    name: Update values
+    name: "Update values"
     id: update_values
     on_press:
       then:
-        - component.update: pause_time_text_sensor  # Update text_sensor immedietely
-        - component.update: sbs_mode_text_sensor  # Update text_sensor immedietely
-        - component.update: motor_speed_open_text_sensor  # Update text_sensor immedietely
-        - component.update: motor_speed_close_text_sensor  # Update text_sensor immedietely
-        - component.update: current_position_text_sensor  # Update text_sensor immedietely
-        - component.update: max_opn_text_sensor  # Update text_sensor immedietely
-        - component.update: pause_time_number  # Update number component immedietely
-        - component.update: sbs_mode_select  # Update select component immedietely
-
-
-  # - platform: template
-  #   name: test_check_cmd
-  #   id: p_opn12
-  #   on_press:
-  #     lambda: |-
-  #        my_nice_cover -> NiceBusT4::check_cmd();
-                      
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::STOP);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::OPEN);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::CLOSE);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN2);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN3);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN4);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN5);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::P_OPN6);
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLK_OPN);  # Unlock and open 
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::CLS_LOCK);  # Close and Lock 
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLCK_CLS); # Unlock and Close
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::LOCK);      # Lock
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::UNLOCK);    # UnLock
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_SBS);  # Host SBS
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_OPN);  # Host Open
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::HOST_CLS);  # Host Close
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_SBS); # Slave SBS
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_OPN); # Slave Open
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::SLAVE_CLS); # Slave Close
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::AUTO_ON);   # Auto-opening active
-#         my_nice_cover -> NiceBusT4::send_cmd(bus_t4::AUTO_OFF);  # Auto-opening is inactive
-
-
+        - component.update: pause_time_text_sensor
+        - component.update: sbs_mode_text_sensor
+        - component.update: motor_speed_open_text_sensor
+        - component.update: motor_speed_close_text_sensor
+        - component.update: current_position_text_sensor
+        - component.update: max_opn_text_sensor
+        - component.update: pause_time_number
+        - component.update: sbs_mode_select
 
 switch:
   - platform: restart
     name: "Nice WT32-ETH01 Restart"
 
-# # disable automatic closing of the gate, if necessary for loading and unloading operations?
-# #auto_close & close_ater_photo
-#   - platform: template
-#     name: "Auto close"
-#     id: autoclose_test
-#     restore_mode: DISABLED
-# #    optimistic: true
-#     lambda: |-
-#       if (my_nice_cover -> NiceBusT4::autocls_flag) {
-#         return true;
-#       } else {
-#         return false;
-#       }
-#     turn_on_action:
-#       lambda: |-
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "80", "a9", "00", true, "01");
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "84", "a9", "00", true, "01");
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "80", "99", "00", true, "01");
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "84", "99", "00", true, "01");                
-#     turn_off_action:
-#       lambda: |-
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "80", "a9", "00", true, "00");
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "84", "a9", "00", true, "00");
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "80", "99", "00", true, "01");
-#         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "84", "99", "00", true, "01");                
-
   - platform: gpio
-    name: "Swiatlo brama"
+    name: "Gate Light"
     pin: ${light_relay_pin}
 
   - platform: template
-    name: "l1L1 - Auto close" #l1L2 - level 1, option L2
+    name: "l1L1 - Auto close"
     id: auto_close
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::autocls_flag) {
         return true;
@@ -262,7 +222,6 @@ switch:
     name: "l1L2 - Close after photo"
     id: close_after_photo
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::photocls_flag) {
         return true;
@@ -282,7 +241,6 @@ switch:
     name: "l1L3 - Always close Active"
     id: always_close
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::alwayscls_flag) {
         return true;
@@ -302,7 +260,6 @@ switch:
     name: "l1L4 - StandBy"
     id: standby
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::standby_flag) {
         return true;
@@ -322,7 +279,6 @@ switch:
     name: "l1L5 - Peak"
     id: peak
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::peak_flag) {
         return true;
@@ -342,7 +298,6 @@ switch:
     name: "l1L6 - Pre-flashing"
     id: pre_flashing
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::preflashing_flag) {
         return true;
@@ -362,7 +317,6 @@ switch:
     name: "l1L8 - Slave mode"
     id: slave_mode
     restore_mode: DISABLED
-#    optimistic: true
     lambda: |-
       if (my_nice_cover -> NiceBusT4::slavemode_flag) {
         return true;
@@ -378,227 +332,27 @@ switch:
         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "98", "a9", "00", true, "00");
         my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "98", "99", "00", true, "01");
 
-# cover:
 cover:
   - platform: bus_t4
     name: "Nice RB400"
     id: my_nice_cover
     device_class: gate
-  #  address: 0x0003            # drive address
-  #  use_address: 0x0081        # gateway address
 
-
-# one_wire:
-#   - platform: gpio
-#     pin: ${DS18B20_pin}
-
-# sensor:
-#   - platform: dallas_temp
-#     address: 0x1234567812345628
-#     name: "Gate temperature"
-#     update_interval: 120s
-
-# Set all register values:
-# globals:
-#   - id: licznik
-#     type: int
-#     initial_value: '0x00'
-#   - id: koniec
-#     type: int
-#     initial_value: '0x71'
-
-# # Definicja skryptu
-# script:
-#   - id: loop_script
-#     then:
-#       - lambda: |-
-#           if (id(licznik) <= id(koniec)) {
-#             char licznik_str[5];
-#             snprintf(licznik_str, sizeof(licznik_str), "%02X", id(licznik));
-#             my_nice_cover->send_inf_cmd("0003", "04", std::string(licznik_str), "a9", "00", true, "01");
-#             my_nice_cover->send_inf_cmd("0003", "04", std::string(licznik_str), "99", "00", true, "01");
-#             ESP_LOGD("main", "Licznik: %s (hex) %d (dec)", licznik_str, id(licznik));
-#             id(licznik) += 1;
-#           }
-
-# interval:
-#   - interval: 1s
-#     then:
-#       - if:
-#           condition:
-#             lambda: 'return id(licznik) <= id(koniec);'
-#           then:
-#             - script.execute: loop_script
-
-# Read all register values
-
-# globals:
-#   - id: licznik
-#     type: int
-#     initial_value: '0x00'
-#   - id: koniec
-#     type: int
-#     initial_value: '0xFF'
-
-# # Definicja skryptu
-# script:
-#   - id: delay_start_script
-#     then:
-#       - delay: 240s  # 4 minuty opóźnienia
-#       - script.execute: loop_script
-
-#   - id: loop_script
-#     then:
-#       - lambda: |-
-#           if (id(licznik) <= id(koniec)) {
-#             char licznik_str[5];
-#             snprintf(licznik_str, sizeof(licznik_str), "%02X", id(licznik));
-#             ESP_LOGD("main", "Licznik: %s (hex), %d (dec)", licznik_str, id(licznik));
-#             my_nice_cover->send_inf_cmd("0003", "04", std::string(licznik_str), "99", "00", true, "01");
-#             id(licznik) += 1;
-#           }
-
-# interval:
-#   - interval: 2s
-#     then:
-#       - if:
-#           condition:
-#             lambda: 'return id(licznik) <= id(koniec);'
-#           then:
-#             - script.execute: loop_script
-
-
-esphome:
-  name: ${device_name}
-  friendly_name: ${device_name_friendly}
- 
-  # on_boot:
-  #   priority: -10
-  #   then:
-  #     - lambda: |-
-  #         id(bus)->pause_time_sensor = id(pause_time_sensor);  // Przypisanie wskaźnika do sensora
-
-# # Dodaj blok on_boot, aby uruchomić skrypt z opóźnieniem
-  # on_boot:
-  #   priority: -10
-  #   then:
-  #     - script.execute: delay_start_script
-
-# ESP_LOGD("main", "Licznik: %d", id(licznik));            
-
-# select:
-#   - platform: template
-#     name: l2L1 - Czas pauzy
-#     id: czas_pauzy_select
-#     optimistic: True
-#     options:
-#       - 'L1 - 5 s'
-#       - 'L2 - 15 s'
-#       - 'L3 - 30 s'
-#       - 'L4 - 45 s'
-#       - 'L5 - 60 s'
-#       - 'L6 - 80 s'
-#       - 'L7 - 120 s'
-#       - 'L8 - 180 s'
-#     initial_option: 'L3 - 30 s'
-#     # lambda: |-
-#     #   if (my_nice_cover -> NiceBusT4::current_pause_time_level) {
-#     #     std::string new_option;
-#     #     switch (current_pause_time_level) {
-#     #       case 1:
-#     #         new_option = "L1 - 5 s";
-#     #         break;
-#     #       case 2:
-#     #         new_option = "L2 - 15 s";
-#     #         break;
-#     #       case 3:
-#     #         new_option = "L3 - 30 s";
-#     #         break;
-#     #       case 4:
-#     #         new_option = "L4 - 45 s";
-#     #         break;
-#     #       case 5:
-#     #         new_option = "L5 - 60 s";
-#     #         break;
-#     #       case 6:
-#     #         new_option = "L6 - 80 s";
-#     #         break;
-#     #       case 7:
-#     #         new_option = "L7 - 120 s";
-#     #         break;
-#     #       case 8:
-#     #         new_option = "L8 - 180 s";
-#     #         break;
-#     #       default:
-#     #         new_option = "L3 - 30 s";  // Default option if the level is out of range
-#     #     }
-#     #     id(czas_pauzy_select).publish_state(new_option.c_str());
-#     #   }
-#     on_value: 
-#       then:
-#         # - logger.log: "wybrano opcję"
-#         - logger.log: 
-#             format: "wybrano opcję %s"
-#             args: [ "x.c_str()" ]
-#         - lambda: |-
-#             std::string czas_pauzy_variable;
-#             if (x == "L1 - 5 s") {
-#               czas_pauzy_variable = "1";
-#             } else if (x == "L2 - 15 s") {
-#               czas_pauzy_variable = "2";
-#             } else if (x == "L3 - 30 s") {
-#               czas_pauzy_variable = "3";
-#             } else if (x == "L4 - 45 s") {
-#               czas_pauzy_variable = "4";
-#             } else if (x == "L5 - 60 s") {
-#               czas_pauzy_variable = "5";
-#             } else if (x == "L6 - 80 s") {
-#               czas_pauzy_variable = "6";
-#             } else if (x == "L7 - 120 s") {
-#               czas_pauzy_variable = "7";
-#             } else if (x == "L8 - 180 s") {
-#               czas_pauzy_variable = "8";
-#             }
-#             my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "81", "a9", "00", true, czas_pauzy_variable.c_str());
-#             my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "81", "99", "00", true, "01");    
-
-
-#Level 2 settings
-#L1 - Pause time
 number:
   - platform: template
-    name: l2L1 - Pause time
+    name: "l2L1 - Pause time"
     id: pause_time_number
     min_value: 0
     max_value: 250
     step: 5
     icon: 'mdi:cog'
-    # restore_value: yes
-    # initial_value: 30
-    # optimistic: true
-    # mode: 'slider'
     mode: 'box'
-    # lambda: |-
-    #   if (id(pause_time_number).has_state()) {
-    #     id(pause_time_number).publish_state(my_nice_cover -> NiceBusT4::pause_time);
-    #   }
-
     lambda: |-
       return(my_nice_cover -> NiceBusT4::pause_time);
-
-    # lambda: |-
-    #   static char buf[4];
-    #   sprintf(buf, "%u", my_nice_cover -> NiceBusT4::pause_time);
-    #   return {buf};
-
     set_action:
-    # on_value:  
       then:
-        # - delay: 200ms
         - lambda: |-
-            //ESP_LOGD("main", "Pause time to set 2 %u (dec)", x);
             int pause_time_to_set = x;
-            //ESP_LOGD("main", "Pause time to set %u (dec)", pause_time_to_set);
             char pause_time_hex[3];
             snprintf(pause_time_hex, sizeof(pause_time_hex), "%02X", pause_time_to_set);
             my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "81", "a9", "00", true, pause_time_hex);
@@ -606,470 +360,44 @@ number:
             ESP_LOGD("main", "Pause time hex %s (hex)", pause_time_hex);
         - delay: 1s  
         - lambda: |-
-            id(pause_time_number).publish_state(my_nice_cover -> NiceBusT4::pause_time); //to be sure that value is updated
-        - component.update: pause_time_text_sensor  # update text_sensor immedietely      
+            id(pause_time_number).publish_state(my_nice_cover -> NiceBusT4::pause_time);
+        - component.update: pause_time_text_sensor
 
-# SELECT ------------------------------------------------------------------------------------------------------------------
 select:
 # L2 - step by step mode -----------------------------------------
   - platform: template
-    name: l2L2 - SBS mode select
+    name: "l2L2 - SBS mode select"
     id: sbs_mode_select
-    # optimistic: True
     options:
-      - 'L1 - Otwiera - stop - zamyka - stop'
-      - 'L2 - Otwiera - stop - zamyka - otwiera'
-      - 'L3 - Otwiera - zamyka - otwiera - zamyka'
-      - 'L4 - Zespół mieszkalny'
-      - 'L5 - Zespół mieszkalny 2 (ponad 2” zatrzymuje)'
-      - 'L6 - Krok po Kroku 2 (mniej niż 2” otwiera częściowo)'
-      - 'L7 - Manualny'
-      - 'L8 - Otwarcie w trybie „półautomatycznym”, zamknięcie w trybie „manualnym”'
-    # initial_option: 'L1 - Otwiera	-	stop	-	zamyka	-	stop'
+      - 'L1 - Open - stop - close - stop'
+      - 'L2 - Open - stop - close - open'
+      - 'L3 - Open - close - open - close'
+      - 'L4 - Residential unit'
+      - 'L5 - Residential unit 2 (stops after 2")'
+      - 'L6 - Step by Step 2 (opens partially under 2")'
+      - 'L7 - Manual'
+      - 'L8 - Open in "semi-automatic" mode, close in "manual" mode'
     lambda: |-
         std::string new_option;
         switch (my_nice_cover -> NiceBusT4::step_by_step_mode) {
           case 1:
-            new_option = "L1 - Otwiera - stop - zamyka - stop";
+            new_option = "L1 - Open - stop - close - stop";
             break;
           case 2:
-            new_option = "L2 - Otwiera - stop - zamyka - otwiera";
+            new_option = "L2 - Open - stop - close - open";
             break;
           case 3:
-            new_option = "L3 - Otwiera - zamyka - otwiera - zamyka";
+            new_option = "L3 - Open - close - open - close";
             break;
           case 4:
-            new_option = "L4 - Zespół mieszkalny";
+            new_option = "L4 - Residential unit";
             break;
           case 5:
-            new_option = "L5 - Zespół mieszkalny 2 (ponad 2” zatrzymuje)";
+            new_option = "L5 - Residential unit 2 (stops after 2\")";
             break;
           case 6:
-            new_option = "L6 - Krok po Kroku 2 (mniej niż 2” otwiera częściowo)";
+            new_option = "L6 - Step by Step 2 (opens partially under 2\")";
             break;
           case 7:
-            new_option = "L7 - Manualny";
+            new_option = "L7 - Manual";
             break;
-          case 8:
-            new_option = "L8 - Otwarcie w trybie „półautomatycznym”, zamknięcie w trybie „manualnym”";
-            break;
-          default:
-            new_option = "unknown";  // Default option if the level is out of range
-            //new_option = "L1 - Otwiera - stop - zamyka - stop";  // Default option if the level is out of range  
-        }
-        //id(sbs_mode_select).publish_state(new_option.c_str());
-        return new_option;
-
-    # lambda: |-
-    #   int mode = my_nice_cover->NiceBusT4::step_by_step_mode;
-    #   if (mode >= 1 && mode <= 8) {
-    #     return id(sbs_mode_select).at(mode - 1); //.value() If the value of mode is in the range 1-8, then we directly return the appropriate option from the list using get_options().at(mode - 1), since the indices in get_options() start from 0 and our modes start from 1.
-    #   } else {
-    #     //return("unknown");
-    #     //return {};
-    #     //return 1;
-    #     //return("L7 - Manualny");
-    #     std::string new_option;
-    #     new_option = "L7 - Manualny";
-    #     return new_option;
-    #   }
-
-    set_action: 
-      then:
-        # - logger.log: "wybrano opcję"
-        - logger.log: 
-            format: "wybrano opcję %s"
-            args: [ "x.c_str()" ]
-        # - lambda: |-
-        #     std::string sbs_mode_variable;
-        #     if (x == "L1 - Otwiera - stop - zamyka - stop") {
-        #       sbs_mode_variable = "1";
-        #     } else if (x == "L2 - Otwiera - stop - zamyka - otwiera") {
-        #       sbs_mode_variable = "2";
-        #     } else if (x == "L3 - Otwiera - zamyka - otwiera - zamyka") {
-        #       sbs_mode_variable = '3';
-        #       // ESP_LOGD("debug", "Wybrano opcję L3");
-        #     } else if (x == "L4 - Zespół mieszkalny") {
-        #       sbs_mode_variable = "4";
-        #     } else if (x == "L5 - Zespół mieszkalny 2 (ponad 2” zatrzymuje)") {
-        #       sbs_mode_variable = "5";
-        #     } else if (x == "L6 - Krok po Kroku 2 (mniej niż 2” otwiera częściowo)") {
-        #       sbs_mode_variable = "6";
-        #     } else if (x == "L7 - Manualny") {
-        #       sbs_mode_variable = "7";
-        #     } else if (x == "L8 - Otwarcie w trybie „półautomatycznym”, zamknięcie w trybie „manualnym”") {
-        #       sbs_mode_variable = "8";
-        #     }
-        #     // ESP_LOGD("debug", "sbs_mode_variable: %s", sbs_mode_variable);
-        #     // ESP_LOGD("debug", "sbs_mode_variable: %s", sbs_mode_variable.c_str());
-        #     my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "61", "a9", "00", true, sbs_mode_variable.c_str());
-        #     my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "61", "99", "00", true, "01");
-        - lambda: |-
-            auto index_optional = id(sbs_mode_select).index_of(x.c_str());
-            int index = index_optional.value_or(0) + 1; //Conversion from optional to int. Indexes are numbered from 0, so we add 1 to get the correct mode number (1 to 8).
-            char sbs_mode_variable[2];
-            snprintf(sbs_mode_variable, sizeof(sbs_mode_variable), "%d", index);
-            my_nice_cover->NiceBusT4::send_inf_cmd("0003", "04", "61", "a9", "00", true, sbs_mode_variable);
-            my_nice_cover->NiceBusT4::send_inf_cmd("0003", "04", "61", "99", "00", true, "01");               
-        - delay: 1s  
-        # - lambda: |-
-            # id(sbs_mode_select).publish_state(my_nice_cover -> NiceBusT4::step_by_step_mode); //to be sure that value is updated
-        - component.update: sbs_mode_text_sensor  # update text_sensor immedietely
-
-# L3 - open speed  -----------------------------------------
-  - platform: template
-    name: l2L3 - open speed select
-    id: speed_open_select
-    # optimistic: True
-    options:
-      - 'L1 - Very slow'
-      - 'L2 - Slow'
-      - 'L3 - Medium'
-      - 'L4 - Fast'
-      - 'L5 - Very fast'
-      - 'L6 - Estremely fast'
-      # - 'L7 - Opens “Fast”, Closes “Slow”'
-      # - 'L8 - Opens “Extremely fast”, Closes “Fast”'
-      - 'other'
-    lambda: |- 
-        // auto motor_speed_open = my_nice_cover -> NiceBusT4::motor_speed_open;
-        std::string new_option;
-        switch (my_nice_cover -> NiceBusT4::motor_speed_open) {
-          case 27: //w DEC
-            new_option = id(speed_open_select).at(0).value_or("other");
-            break;
-          case 35:
-            new_option = id(speed_open_select).at(1).value_or("other");
-            break;
-          case 45:
-            new_option = id(speed_open_select).at(2).value_or("other");
-            break;
-          case 60:
-            new_option = id(speed_open_select).at(3).value_or("other");
-            break;
-          case 80:
-            new_option = id(speed_open_select).at(4).value_or("other");
-            break;
-          case 100:
-            new_option = id(speed_open_select).at(5).value_or("other");
-            break;
-          default:
-            new_option = "other";  // Default option if the level is out of range
-        }
-        //id(speed_open_select).publish_state(new_option.c_str());
-        //ESP_LOGD("debug", "new_option = : %s", new_option.c_str());
-        return new_option;
-
-    set_action: 
-      then:
-        - logger.log: 
-            format: "chosen option %s"
-            args: [ "x.c_str()" ]
-        - logger.log: 
-            format: "Selected index: %d"
-            args: [ "(id(speed_open_select).index_of(x.c_str())).value_or(0)" ]
-
-        - lambda: |-
-            if (x != other) {
-              int open_speed_variable;
-              switch ((id(speed_open_select).index_of(x.c_str())).value_or(0)) {
-                case 0:
-                  open_speed_variable = 27;
-                  break;
-                case 1:
-                  open_speed_variable = 35;
-                  break;
-                case 2:
-                  open_speed_variable = 45;
-                  break;
-                case 3:
-                  open_speed_variable = 60;
-                  break;
-                case 4:
-                  open_speed_variable = 80;
-                  break;
-                case 5:
-                  open_speed_variable = 100;
-                  break;
-              }
-              char open_speed_variable_hex[2];
-              sprintf(open_speed_variable_hex, "%X", open_speed_variable);
-              //ESP_LOGD("debug", "open_speed_variable: %d", open_speed_variable);
-              //ESP_LOGD("debug", "((id(speed_open_select).index_of(x.c_str())).value_or(0)): %d", ((id(speed_open_select).index_of(x.c_str())).value_or(0)));
-              //ESP_LOGD("debug", "(id(speed_open_select).index_of(x.c_str())): %d", (id(speed_open_select).index_of(x.c_str())));
-              //ESP_LOGD("debug", "open_speed_variable_dec: %d", open_speed_variable);
-              my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "42", "a9", "00", true, open_speed_variable_hex);
-              my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "42", "99", "00", true, "01");
-          }
-        # - lambda: |-
-        #     auto index_optional = id(sbs_mode_select).index_of(x.c_str());
-        #     int index = index_optional.value_or(0) + 1; //Conversion from optional to int. Indexes are numbered from 0, so we add 1 to get the correct mode number (1 to 8).
-        #     char sbs_mode_variable[2];
-        #     snprintf(sbs_mode_variable, sizeof(sbs_mode_variable), "%d", index);
-        #     my_nice_cover->NiceBusT4::send_inf_cmd("0003", "04", "61", "a9", "00", true, sbs_mode_variable);
-        #     my_nice_cover->NiceBusT4::send_inf_cmd("0003", "04", "61", "99", "00", true, "01");     
-
-        - delay: 1s  
-        # - lambda: |-
-            # id(sbs_mode_select).publish_state(my_nice_cover -> NiceBusT4::step_by_step_mode); //to be sure that value is updated
-        - component.update: motor_speed_open_text_sensor  # update text_sensor immedietely
-
-# L3 - close speed  -----------------------------------------
-  - platform: template
-    name: l2L3 - close speed select
-    id: speed_close_select
-    # optimistic: True
-    options:
-      - 'L1 - Very slow'
-      - 'L2 - Slow'
-      - 'L3 - Medium'
-      - 'L4 - Fast'
-      - 'L5 - Very fast'
-      - 'L6 - Estremely fast'
-      # - 'L7 - Opens “Fast”, Closes “Slow”'
-      # - 'L8 - Opens “Extremely fast”, Closes “Fast”'
-      - 'other'
-    lambda: |- 
-        // auto motor_speed_open = my_nice_cover -> NiceBusT4::motor_speed_close;
-        std::string new_option;
-        switch (my_nice_cover -> NiceBusT4::motor_speed_close) {
-          case 27: //w DEC
-            new_option = id(speed_close_select).at(0).value_or("other");
-            break;
-          case 35:
-            new_option = id(speed_close_select).at(1).value_or("other");
-            break;
-          case 45:
-            new_option = id(speed_close_select).at(2).value_or("other");
-            break;
-          case 60:
-            new_option = id(speed_close_select).at(3).value_or("other");
-            break;
-          case 80:
-            new_option = id(speed_close_select).at(4).value_or("other");
-            break;
-          case 100:
-            new_option = id(speed_close_select).at(5).value_or("other");
-            break;
-          default:
-            new_option = "other";  // Default option if the level is out of range
-        }
-        //id(speed_close_select).publish_state(new_option.c_str());
-        //ESP_LOGD("debug", "new_option = : %s", new_option.c_str());
-        return new_option;
-
-    set_action: 
-      then:
-        - logger.log: 
-            format: "chosen option %s"
-            args: [ "x.c_str()" ]
-        - logger.log: 
-            format: "Selected index: %d"
-            args: [ "(id(speed_close_select).index_of(x.c_str())).value_or(0)" ]
-
-        - lambda: |-
-            if (x != "other" {
-              int close_speed_variable;
-              switch ((id(speed_close_select).index_of(x.c_str())).value_or(0)) {
-                case 0:
-                  close_speed_variable = 27;
-                  break;
-                case 1:
-                  close_speed_variable = 35;
-                  break;
-                case 2:
-                  close_speed_variable = 45;
-                  break;
-                case 3:
-                  close_speed_variable = 60;
-                  break;
-                case 4:
-                  close_speed_variable = 80;
-                  break;
-                case 5:
-                  close_speed_variable = 100;
-                  break;
-              }
-              char close_speed_variable_hex[2];
-              sprintf(close_speed_variable_hex, "%X", close_speed_variable);
-              my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "43", "a9", "00", true, close_speed_variable_hex);
-              my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "43", "99", "00", true, "01");
-            }
-        - delay: 1s  
-        - component.update: motor_speed_close_text_sensor  # update text_sensor immedietely
-
-# L4 - GOI OUTPUT  -----------------------------------------
-  - platform: template
-    name: l2L3 - close speed select
-    id: goi_select
-    # optimistic: True
-    options:
-      - 'L1 - “Gate Open Indicator” (G.O.I.) function'
-      - 'L2 - On if gate closed'
-      - 'L3 - On if gate open'
-      - 'L4 - Active with radio output no. 2'
-      - 'L5 - Active with radio output no. 3'
-      - 'L6 - Active with radio output no. 4'
-      - 'L7 - Maintenance indicator'
-      - 'L8 - Electric lock'
-      - 'unknown'
-    lambda: |- 
-        std::string new_option;
-        switch (my_nice_cover -> NiceBusT4::out2) {
-          case 1: //w DEC
-            new_option = id(goi_select).at(0).value_or("other");
-            break;
-          case 3:
-            new_option = id(goi_select).at(1).value_or("other");
-            break;
-          case 2:
-            new_option = id(goi_select).at(2).value_or("other");
-            break;
-          case 16:
-            new_option = id(goi_select).at(3).value_or("other");
-            break;
-          case 17:
-            new_option = id(goi_select).at(4).value_or("other");
-            break;
-          case 18:
-            new_option = id(goi_select).at(5).value_or("other");
-            break;
-          case 4:
-            new_option = id(goi_select).at(6).value_or("other");
-            break;
-          case 7:
-            new_option = id(goi_select).at(7).value_or("other");
-            break;
-          default:
-            new_option = "unknown";  // Default option if the level is out of range
-        }
-        //id(goi_select).publish_state(new_option.c_str());
-        //ESP_LOGD("debug", "new_option = : %s", new_option.c_str());
-        return new_option;
-
-    set_action: 
-      then:
-        - logger.log: 
-            format: "chosen option %s"
-            args: [ "x.c_str()" ]
-        - logger.log: 
-            format: "Selected index: %d"
-            args: [ "(id(goi_select).index_of(x.c_str())).value_or(0)" ]
-
-        - lambda: |-
-            if (x != "unknown") {
-              int goi_mode_variable;
-              switch ((id(goi_select).index_of(x.c_str())).value_or(0)) {
-                case 0:
-                  goi_mode_variable = 1;
-                  break;
-                case 1:
-                  goi_mode_variable = 3;
-                  break;
-                case 2:
-                  goi_mode_variable = 2;
-                  break;
-                case 3:
-                  goi_mode_variable = 16;
-                  break;
-                case 4:
-                  goi_mode_variable = 17;
-                  break;
-                case 5:
-                  goi_mode_variable = 18;
-                  break;
-                case 6:
-                  goi_mode_variable = 4;
-                  break;
-                case 7:
-                  goi_mode_variable = 7;
-                  break;
-              }
-              char goi_mode_variable_hex[2];
-              sprintf(goi_mode_variable_hex, "%X", goi_mode_variable);
-              my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "52", "a9", "00", true, goi_mode_variable_hex);
-              my_nice_cover -> NiceBusT4::send_inf_cmd("0003", "04", "52", "99", "00", true, "01");
-            }  
-        - delay: 1s  
-        - component.update: goi_mode_text_sensor  # update text_sensor immedietely
-
-# For information purposes - just to be sure of setting values
-text_sensor:
-  - platform: template
-    name: "l2L1: Pause time"
-    id: pause_time_text_sensor
-    # restore_mode: DISABLED
-    lambda: |-
-      static char buf[4];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::pause_time);
-      return {buf};
-    # update_interval: 1s
-    # on_value:
-    #   then:
-    #     - lambda: |-
-    #         if (id(nice_bus_t4) != nullptr) {
-    #           id(nice_bus_t4)->pause_time_sensor = id(pause_time_sensor);  // Bez użycia & i castowania
-    #           ESP_LOGD("debug", "pause_time_sensor przypisany: %p", id(nice_bus_t4)->pause_time_sensor);
-    #         }
-    # on_value:
-    #   then:
-    #     lambda: |-
-    #       static char buf[4];
-    #       sprintf(buf, "%u", my_nice_cover -> NiceBusT4::pause_time);
-    #       return {buf};
-
-  - platform: template
-    name: "l2L2: SBS mode"
-    id: sbs_mode_text_sensor
-    lambda: |-
-      static char buf[6];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::step_by_step_mode);
-      return {buf};
-
-  - platform: template
-    name: "l2L3: Motor speed open"
-    id: motor_speed_open_text_sensor
-    lambda: |-
-      static char buf[4];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::motor_speed_open);
-      return {buf};
-
-  - platform: template
-    name: "l2L3: Motor speed close"
-    id: motor_speed_close_text_sensor
-    lambda: |-
-      static char buf[4];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::motor_speed_close);
-      return {buf};
-
-  - platform: template
-    name: "l2L3: GOI mode"
-    id: goi_mode_text_sensor
-    lambda: |-
-      static char buf[4];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::out2);
-      return {buf};
-
-  - platform: template
-    name: "Current position"
-    id: current_position_text_sensor
-    lambda: |-
-      static char buf[4];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::current_position);
-      return {buf};
-
-  - platform: template
-    name: "Encoder max open"
-    id: max_opn_text_sensor
-    lambda: |-
-      static char buf[6];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::max_encoder_position);
-      return {buf};        
-
-  - platform: template
-    name: "Number of cycles"
-    id: number_of_cycles_text_sensor
-    lambda: |-
-      static char buf[6];
-      sprintf(buf, "%u", my_nice_cover -> NiceBusT4::p_count);
-      return {buf};  
