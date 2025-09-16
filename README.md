@@ -1,43 +1,48 @@
-# ESPHOME component to control Nice drives via Bus T4 protocol ESP32 board based
+Компонент ESPHOME для управления приводами Nice по протоколу Bus T4 на базе платы ESP32
+Основано на https://github.com/pruwait/Nice_BusT4. создано в обучающих целях и для тренировки студентов
+Модификации:
 
-Based on https://github.com/pruwait/Nice_BusT4.
-Modyfication:
-- change ESP8266 uart address and functions to appropriate for ESP32.
-- addedd all known level 1 settings to yaml (without “Close” becomes “Partial open” - unknown address).
-Checked with ROBUS400 with RB400SR10 driver 
+добавлено отобрадение часов реального времени и IP адреса устройства для упрощения отладки
 
-# Nice Bus T4 protocol
+изменен адрес UART и функции с ESP8266 на соответствующие для ESP32.(относительно оригинальной от pruwait)
 
-Allowes WT32-ETH01 to communicate with Nice gate/garage openers using the Bus T4 port.
-Nice controll board must be equipped with BusT4 connector.
+добавлены все известные настройки уровня 1 в yaml (без "Закрытие" становится "Частичное открытие" - неизвестный адрес).
+Проверено с ROBUS400 с драйвером RB400SR10.
 
-# Current capabilities
-* Sending commands: "Open", "Stop", "Close", "Partial opening", "Step by step (SBS)" and others via buttons.
-* Sending arbitrary HEX commands via the "raw_command" service. Byte separators can be periods or spaces. Example: 55 0c 00 03 00 81 01 05 86 01 82 01 64 e6 0c or 55.0D.00.FF.00.66.08.06.97.00.04.99.00.00.9D.0D
-* Formation and sending of arbitrary GET/SET requests through the "send_inf_command" service. Allows you to configure the device or get its status.
-* Display packets from all devices in the BusT4 network.
-* Tested with Wingo5000 with MCA5 block, Robus RB500HS, SO2000, Road 400, DPRO924.
+Протокол Nice Bus T4
+Позволяет WT32-ETH01 взаимодействовать с воротами/гаражными openerами Nice с использованием порта Bus T4.
+Плата управления Nice должна быть оборудована разъемом BusT4.
 
-# BusT4:
-This is a modified UART 19200 8n1 with a uart break duration of 519us-590us before each burst.
-You can connect several devices; for this, CAN-BUS transceivers are added to the physical layer.
-Physical transmission often occurs through CAN transceivers, but there are no CAN frames.
+Текущие возможности
+Отправка команд: "Открыть", "Стоп", "Закрыть", "Частичное открытие", "Шаг за шагом (SBS)" и других через кнопки.
 
-BusT4 RX/TX are running on 5V. WT32-ETH01 RX/TX are using 3.3V - level shifter must be used!
-BusT4 VCC pin provides power with voltage in range of 24V to 28V.
-Take extra care to follow the correct pinout - incorrect wiring to the BusT4 can immediately kill you Nice control board. Manually check voltage on the VCC port before connecting to the unit!
+Отправка произвольных HEX-команд через сервис "raw_command". Разделители байтов могут быть точками или пробелами. Пример: 55 0c 00 03 00 81 01 05 86 01 82 01 64 e6 0c или 55.0D.00.FF.00.66.08.06.97.00.04.99.00.00.9D.0D
 
-The component supports sending an arbitrary command to the drive via the ESPHome service:
-```
+Формирование и отправка произвольных GET/SET запросов через сервис "send_inf_command". Позволяет настраивать устройство или получать его статус.
+
+Отображение пакетов от всех устройств в сети BusT4.
+
+Протестировано с Wingo5000 с блоком MCA5, Robus RB500HS, SO2000, Road 400, DPRO924.
+
+BusT4:
+Это модифицированный UART 19200 8n1 с длительностью uart break 519us-590us перед каждой посылкой.
+Вы можете подключить несколько устройств; для этого на физический уровень добавлены CAN-BUS трансиверы.
+Физическая передача часто происходит через CAN трансиверы, но CAN фреймов нет.
+
+BusT4 RX/TX работают на 5В. WT32-ETH01 RX/TX используют 3.3В - необходимо использовать преобразователь уровней!
+Контакты BusT4 VCC обеспечивают питание с напряжением в диапазоне от 24В до 28В.
+Будьте особенно внимательны к правильной распиновке - неправильное подключение к BusT4 может мгновенно вывести из строя вашу плату управления Nice. Вручную проверьте напряжение на порте VCC перед подключением к устройству!
+
+Компонент поддерживает отправку произвольной команды на привод через сервис ESPHome:
+
+text
 SBS:   55 0c 00 03 00 81 01 05 86 01 82 01 64 e6 0c
 Open:  55 0c 00 03 05 81 01 05 83 01 82 03 64 e4 0c
 Close: 55 0c 00 03 05 81 01 05 83 01 82 04 64 e3 0c
 Stop:  55 0c 00 03 00 81 01 05 86 01 82 02 64 e5 0c
-```
+Оригинальная версия для Wemos D1 Mini доступна по адресу https://github.com/pruwait/Nice_BusT4, большая часть заслуг принадлежит @pruwait.
 
-Original version on Wemos D1 Mini available at https://github.com/pruwait/Nice_BusT4, most of credit goes to `@pruwait`.
+Английская версия для Wemos D1 Mini доступна по адресу https://github.com/xdanik/Nice_BusT4.
 
-English version on Wemos D1 Mini available at https://github.com/xdanik/Nice_BusT4.
-
-# Connection with WT32_ETH01:
-RX & TX connect to IO5 and IO17 of WT32-ETH01.
+Подключение к WT32_ETH01:
+RX и TX подключаются к IO5 и IO17 WT32-ETH01.
