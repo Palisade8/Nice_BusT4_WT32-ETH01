@@ -99,6 +99,7 @@ text_sensor:
       name: "Device IP"
       id: device_ip
       icon: "mdi:ip-network"
+      update_interval: 60s  # Проверяем IP 1 раз в 60 секунд
 
 external_components:
   - source:
