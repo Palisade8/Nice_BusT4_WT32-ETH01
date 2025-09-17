@@ -1,5 +1,5 @@
 #sends packets via uart to the Nice BUS T4
-#test on Wemos D1 mini
+#tested on Esp32-eth01
 
 substitutions:
   device_name: "nice-bust4-uart"
